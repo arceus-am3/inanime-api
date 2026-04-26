@@ -1,18 +1,9 @@
 const {
-  fetchAnikageEpisodes,
-  summarizeProviders
-} = require('../lib/providers/anikage');
-const {
-  fetchAnimexEpisodes,
   fetchAnimexServers,
-  summarizeAnimexData
+  normalizeAnimexServerLists
 } = require('../lib/providers/animex');
 const { fetchAniList } = require('../lib/clients/anilist');
 const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
-
-function mergeProviderLists(primary = [], secondary = []) {
-  return [...new Set([...(primary || []), ...(secondary || [])])];
-}
 
 module.exports = async function handler(req, res) {
   setCacheHeaders(res, CACHE_POLICIES.info);
@@ -55,22 +46,15 @@ module.exports = async function handler(req, res) {
 
     const data = responseData.Media;
     if (data) {
-      const [sourceEpisodes, animexEpisodes, animexServers] = await Promise.all([
-        fetchAnikageEpisodes(id).catch(() => []),
-        fetchAnimexEpisodes(id, data.title).catch(() => []),
-        fetchAnimexServers(id, data.title, 1).catch(() => ({
+      const animexServers = normalizeAnimexServerLists(
+        await fetchAnimexServers(id, data.title, 1).catch(() => ({
           subProviders: [],
           dubProviders: []
         }))
-      ]);
-
-      const anikageSummary = summarizeProviders(sourceEpisodes);
-      const animexSummary = summarizeAnimexData(animexEpisodes, animexServers);
+      );
       const providerSummary = {
-        hasSub: anikageSummary.hasSub || animexSummary.hasSub,
-        hasDub: anikageSummary.hasDub || animexSummary.hasDub,
-        subProviders: mergeProviderLists(anikageSummary.subProviders, animexSummary.subProviders),
-        dubProviders: mergeProviderLists(anikageSummary.dubProviders, animexSummary.dubProviders)
+        hasSub: animexServers.subProviders.length > 0,
+        hasDub: animexServers.dubProviders.length > 0
       };
 
       // Normalize Score
@@ -82,8 +66,6 @@ module.exports = async function handler(req, res) {
       let currentEpisodeCount = data.episodes;
       if (data.status === 'RELEASING' && data.nextAiringEpisode) {
         currentEpisodeCount = data.nextAiringEpisode.episode - 1;
-      } else if (!currentEpisodeCount && animexSummary.currentEpisodeCount) {
-        currentEpisodeCount = animexSummary.currentEpisodeCount;
       }
 
       const {
@@ -99,9 +81,7 @@ module.exports = async function handler(req, res) {
           currentEpisodeCount: currentEpisodeCount,
           streaming: {
             hasSub: providerSummary.hasSub,
-            hasDub: providerSummary.hasDub,
-            subProviders: providerSummary.subProviders,
-            dubProviders: providerSummary.dubProviders
+            hasDub: providerSummary.hasDub
           }
         }
       });
