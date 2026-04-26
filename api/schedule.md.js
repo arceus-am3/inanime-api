@@ -1,6 +1,8 @@
-const axios = require('axios');
+const { fetchAniList } = require('../lib/clients/anilist');
+const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
 export default async function handler(req, res) {
+  setCacheHeaders(res, CACHE_POLICIES.daily);
   const now = Math.floor(Date.now() / 1000);
   const nextWeek = now + (7 * 24 * 60 * 60);
 
@@ -22,11 +24,12 @@ export default async function handler(req, res) {
   }`;
 
   try {
-    const response = await axios.post('https://graphql.anilist.co', { 
-      query, 
-      variables: { start: now, end: nextWeek } 
-    });
-    res.status(200).json({ success: true, data: response.data.data.Page.airingSchedules });
+    const responseData = await fetchAniList(
+      query,
+      { start: now, end: nextWeek },
+      { ttlMs: CACHE_POLICIES.daily.sMaxAge * 1000 }
+    );
+    res.status(200).json({ success: true, data: responseData.Page.airingSchedules });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }

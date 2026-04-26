@@ -1,8 +1,8 @@
-const axios = require('axios');
+const { fetchAniList } = require('../lib/clients/anilist');
+const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
 export default async function handler(req, res) {
-  // 1 Hour Cache for Search
-  res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=59');
+  setCacheHeaders(res, CACHE_POLICIES.daily);
 
   const { q, genre, year, season, format, page = 1 } = req.query;
 
@@ -25,13 +25,17 @@ export default async function handler(req, res) {
       ...(format && { format: format.toUpperCase().replace(' ', '_') })
     };
 
-    const response = await axios.post('https://graphql.anilist.co', { query, variables });
-    const media = response.data.data.Page.media.map(m => ({
+    const responseData = await fetchAniList(
+      query,
+      variables,
+      { ttlMs: CACHE_POLICIES.daily.sMaxAge * 1000 }
+    );
+    const media = responseData.Page.media.map(m => ({
       ...m,
       averageScore: m.averageScore ? (m.averageScore / 10).toFixed(1) : null
     }));
-    res.status(200).json({ success: true, data: { ...response.data.data.Page, media } });
+    res.status(200).json({ success: true, data: { ...responseData.Page, media } });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.response ? e.response.data : e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 }

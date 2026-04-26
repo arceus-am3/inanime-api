@@ -1,72 +1,88 @@
-const axios = require('axios');
+const {
+  fetchAnikageEpisodes,
+  normalizeEpisodeList
+} = require('../lib/providers/anikage');
+const {
+  fetchAnimexEpisodes,
+  normalizeAnimexEpisodeList
+} = require('../lib/providers/animex');
+const { fetchAniList } = require('../lib/clients/anilist');
+const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
-export default async function handler(req, res) {
-  // 15 Minutes Cache
-  res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=120');
+module.exports = async function handler(req, res) {
+  setCacheHeaders(res, CACHE_POLICIES.episodes);
   const { id } = req.query;
 
   const query = `
     query ($id: Int) {
       Media (id: $id, type: ANIME) {
         id
+        title { english romaji native }
         status
         episodes
         nextAiringEpisode {
           episode
         }
       }
-      Page(page: 1, perPage: 100) {
-        airingSchedules(mediaId: $id, sort: [TIME_DESC]) {
-          episode
-          airingAt
-          timeUntilAiring
-        }
-      }
     }
   `;
 
   try {
-    const response = await axios.post('https://graphql.anilist.co', {
+    const responseData = await fetchAniList(
       query,
-      variables: { id: parseInt(id) }
-    });
+      { id: parseInt(id, 10) },
+      { ttlMs: CACHE_POLICIES.episodes.sMaxAge * 1000 }
+    );
 
-    const mediaData = response.data.data.Media;
-    const scheduleNodes = response.data.data.Page.airingSchedules || [];
-    
-    // Smart Calculation for Current Episode Count
-    let currentEpisodeCount = mediaData.episodes; 
-    if (mediaData.status === 'RELEASING' && mediaData.nextAiringEpisode) {
-      currentEpisodeCount = mediaData.nextAiringEpisode.episode - 1;
-    } else if (mediaData.status === 'RELEASING' && !mediaData.nextAiringEpisode) {
-      const airedNodes = scheduleNodes.filter(n => n.timeUntilAiring < 0) || [];
-      if (airedNodes.length > 0) {
-        currentEpisodeCount = Math.max(...airedNodes.map(n => n.episode));
+    const mediaData = responseData.Media;
+    const [sourceEpisodes, animexEpisodes] = await Promise.all([
+      fetchAnikageEpisodes(id).catch(() => []),
+      fetchAnimexEpisodes(id, mediaData.title).catch(() => [])
+    ]);
+
+    const anikageEpisodes = normalizeEpisodeList(sourceEpisodes);
+    const animexEpisodeNumbers = normalizeAnimexEpisodeList(animexEpisodes);
+    const episodeMap = new Map();
+
+    for (const episodeItem of anikageEpisodes) {
+      episodeMap.set(episodeItem.number, episodeItem.number);
+    }
+
+    for (const episodeItem of animexEpisodeNumbers) {
+      if (!episodeMap.has(episodeItem.number)) {
+        episodeMap.set(episodeItem.number, episodeItem.number);
       }
     }
 
-    // Convert timestamps to readable dates
-    const formattedNodes = scheduleNodes.map(node => ({
-      ...node,
-      readableDate: new Date(node.airingAt * 1000).toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    }));
+    const episodes = [...episodeMap.values()]
+      .sort((a, b) => a - b)
+      .map((number) => ({ number }));
+    
+    // Smart Calculation for Current Episode Count
+    let currentEpisodeCount = mediaData.episodes || null;
+    if (mediaData.status === 'RELEASING' && mediaData.nextAiringEpisode) {
+      currentEpisodeCount = mediaData.nextAiringEpisode.episode - 1;
+    } else if (!currentEpisodeCount && episodes.length > 0) {
+      currentEpisodeCount = Math.max(...episodes.map((item) => item.number));
+    }
+
+    const nextAiringEpisode = mediaData.nextAiringEpisode
+      ? {
+          episode: mediaData.nextAiringEpisode.episode
+        }
+      : null;
 
     res.status(200).json({
       success: true,
       data: {
         currentEpisodeCount: currentEpisodeCount,
-        ...mediaData,
-        airingSchedule: { nodes: formattedNodes }
+        id: mediaData.id,
+        status: mediaData.status,
+        nextAiringEpisode,
+        episodes
       }
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
-}
+};

@@ -1,8 +1,8 @@
-const axios = require('axios');
+const { fetchAniList } = require('../lib/clients/anilist');
+const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
 export default async function handler(req, res) {
-  // 10 Days Cache
-  res.setHeader('Cache-Control', 's-maxage=864000, stale-while-revalidate=86400');
+  setCacheHeaders(res, CACHE_POLICIES.daily);
   const { page = 1 } = req.query;
   const now = Math.floor(Date.now() / 1000);
   const endDate = now + (10 * 24 * 60 * 60);
@@ -26,11 +26,12 @@ export default async function handler(req, res) {
   }`;
 
   try {
-    const response = await axios.post('https://graphql.anilist.co', { 
-      query, 
-      variables: { start: now, end: endDate, page: parseInt(page) } 
-    });
-    const schedules = response.data.data.Page.airingSchedules.map(item => {
+    const responseData = await fetchAniList(
+      query,
+      { start: now, end: endDate, page: parseInt(page, 10) },
+      { ttlMs: CACHE_POLICIES.daily.sMaxAge * 1000 }
+    );
+    const schedules = responseData.Page.airingSchedules.map(item => {
       if (item.media && item.media.averageScore) {
         item.media.averageScore = (item.media.averageScore / 10).toFixed(1);
       }
@@ -49,11 +50,11 @@ export default async function handler(req, res) {
     res.status(200).json({ 
       success: true, 
       data: {
-        pageInfo: response.data.data.Page.pageInfo,
+        pageInfo: responseData.Page.pageInfo,
         schedules: schedules
       }
     });
   } catch (e) {
-    res.status(500).json({ success: false, error: e.response ? e.response.data : e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 }

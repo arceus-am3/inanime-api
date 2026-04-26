@@ -1,8 +1,8 @@
-const axios = require('axios');
+const { fetchAniList } = require('../lib/clients/anilist');
+const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
-export default async function handler(req, res) {
-  // 15 Minutes Cache
-  res.setHeader('Cache-Control', 's-maxage=900, stale-while-revalidate=120');
+module.exports = async function handler(req, res) {
+  setCacheHeaders(res, CACHE_POLICIES.home);
   const query = `query {
     spotlights: Page(page: 1, perPage: 10) { 
       media(type: ANIME, sort: TRENDING_DESC, status: RELEASING) { 
@@ -27,8 +27,11 @@ export default async function handler(req, res) {
   }`;
 
   try {
-    const response = await axios.post('https://graphql.anilist.co', { query });
-    const data = response.data.data;
+    const data = await fetchAniList(
+      query,
+      {},
+      { ttlMs: CACHE_POLICIES.home.sMaxAge * 1000 }
+    );
 
     // Normalize scores
     const normalize = (media) => media.map(m => ({
@@ -48,4 +51,4 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
-}
+};

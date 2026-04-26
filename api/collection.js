@@ -1,6 +1,8 @@
-const axios = require('axios');
+const { fetchAniList } = require('../lib/clients/anilist');
+const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
 export default async function handler(req, res) {
+  setCacheHeaders(res, CACHE_POLICIES.daily);
   const { sort = 'TRENDING_DESC', page = 1, status } = req.query;
 
   const query = `query ($page: Int, $sort: [MediaSort], $status: MediaStatus) {
@@ -20,11 +22,26 @@ export default async function handler(req, res) {
   }`;
 
   try {
-    const media = response.data.data.Page.media.map(m => ({
+    const variables = {
+      page: parseInt(page, 10),
+      sort: String(sort)
+        .split(',')
+        .map((item) => item.trim().toUpperCase())
+        .filter(Boolean),
+      ...(status ? { status: String(status).trim().toUpperCase() } : {})
+    };
+
+    const responseData = await fetchAniList(
+      query,
+      variables,
+      { ttlMs: CACHE_POLICIES.daily.sMaxAge * 1000 }
+    );
+
+    const media = responseData.Page.media.map(m => ({
       ...m,
       averageScore: m.averageScore ? (m.averageScore / 10).toFixed(1) : null
     }));
-    res.status(200).json({ success: true, data: { ...response.data.data.Page, media } });
+    res.status(200).json({ success: true, data: { ...responseData.Page, media } });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
