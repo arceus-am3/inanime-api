@@ -27,7 +27,6 @@ module.exports = async function handler(req, res) {
     topAiring: Page(page: 1, perPage: 15) { 
       media(type: ANIME, sort: POPULARITY_DESC, status: RELEASING) { 
         id idMal title { english romaji } coverImage { large } averageScore episodes status
-        nextAiringEpisode { episode airingAt timeUntilAiring }
       } 
     }
     allTimeFavorites: Page(page: 1, perPage: 15) { 
@@ -46,7 +45,7 @@ module.exports = async function handler(req, res) {
           coverImage { large }
           averageScore
           status
-          nextAiringEpisode { episode airingAt timeUntilAiring }
+          episodes
         }
       } 
     }
@@ -64,18 +63,28 @@ module.exports = async function handler(req, res) {
       averageScore: m.averageScore ? (m.averageScore / 10).toFixed(1) : null
     }));
 
-    const latestEpisodes = (data.latestEpisodes?.airingSchedules || [])
-      .filter((item) => item?.media?.id)
-      .map((item) => ({
-        episode: item.episode,
-        airingAt: item.airingAt,
-        media: {
-          ...item.media,
-          averageScore: item.media.averageScore
-            ? (item.media.averageScore / 10).toFixed(1)
-            : null
-        }
-      }));
+    const latestEpisodes = [];
+    const latestSeen = new Set();
+
+    for (const item of data.latestEpisodes?.airingSchedules || []) {
+      const media = item?.media;
+      if (!media?.id || latestSeen.has(media.id)) {
+        continue;
+      }
+
+      latestSeen.add(media.id);
+      latestEpisodes.push({
+        id: media.id,
+        idMal: media.idMal,
+        title: media.title,
+        coverImage: media.coverImage,
+        averageScore: media.averageScore
+          ? (media.averageScore / 10).toFixed(1)
+          : null,
+        episodes: media.episodes || null,
+        status: media.status
+      });
+    }
 
     res.status(200).json({
       success: true,
