@@ -1,9 +1,21 @@
 const {
-  fetchAnimexServers,
-  normalizeAnimexServerLists
+  fetchAnikageEpisodes,
+  normalizeEpisodeList
+} = require('../lib/providers/anikage');
+const {
+  fetchAnimexEpisodes,
+  normalizeAnimexEpisodeList
 } = require('../lib/providers/animex');
 const { fetchAniList } = require('../lib/clients/anilist');
 const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
+const { getSourceOrder } = require('../lib/source-config');
+
+function summarizeEpisodeFlags(episodes = []) {
+  return {
+    hasSub: episodes.some((item) => Boolean(item.hasSub)),
+    hasDub: episodes.some((item) => Boolean(item.hasDub))
+  };
+}
 
 module.exports = async function handler(req, res) {
   setCacheHeaders(res, CACHE_POLICIES.info);
@@ -46,16 +58,41 @@ module.exports = async function handler(req, res) {
 
     const data = responseData.Media;
     if (data) {
-      const animexServers = normalizeAnimexServerLists(
-        await fetchAnimexServers(id, data.title, 1).catch(() => ({
-          subProviders: [],
-          dubProviders: []
-        }))
-      );
-      const providerSummary = {
-        hasSub: animexServers.subProviders.length > 0,
-        hasDub: animexServers.dubProviders.length > 0
+      const sourceOrder = getSourceOrder();
+      let providerSummary = {
+        hasSub: false,
+        hasDub: false
       };
+
+      for (const sourceSite of sourceOrder) {
+        try {
+          if (sourceSite === 'anikage') {
+            const anikageEpisodes = normalizeEpisodeList(
+              await fetchAnikageEpisodes(id).catch(() => [])
+            );
+            const summary = summarizeEpisodeFlags(anikageEpisodes);
+
+            if (summary.hasSub || summary.hasDub) {
+              providerSummary = summary;
+              break;
+            }
+          }
+
+          if (sourceSite === 'animex') {
+            const animexEpisodes = normalizeAnimexEpisodeList(
+              await fetchAnimexEpisodes(id, data.title).catch(() => [])
+            );
+            const summary = summarizeEpisodeFlags(animexEpisodes);
+
+            if (summary.hasSub || summary.hasDub) {
+              providerSummary = summary;
+              break;
+            }
+          }
+        } catch {
+          // Ignore fallback source failures in info route.
+        }
+      }
 
       // Normalize Score
       if (data.averageScore) {

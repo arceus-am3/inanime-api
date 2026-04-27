@@ -15,6 +15,7 @@ const {
 } = require('../lib/providers/anidap');
 const { fetchAniList } = require('../lib/clients/anilist');
 const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
+const { getSourceOrder, normalizeSourceName } = require('../lib/source-config');
 
 function toBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === '') {
@@ -30,9 +31,7 @@ module.exports = async function handler(req, res) {
   const id = req.query.id || req.query.anilistId;
   const episode = parseInt(req.query.episode || req.query.ep || '1', 10);
   const type = String(req.query.type || 'sub').toLowerCase() === 'dub' ? 'dub' : 'sub';
-  const requestedSite = ['anikage', 'animex', 'anidap'].includes(String(req.query.site || '').toLowerCase())
-    ? String(req.query.site).toLowerCase()
-    : null;
+  const requestedSite = normalizeSourceName(req.query.site);
   const refresh = toBoolean(req.query.refresh, false);
 
   if (!id) {
@@ -54,29 +53,30 @@ module.exports = async function handler(req, res) {
     const attempts = [];
     let streamData = null;
     let mediaTitle = null;
+    const sourceOrder = getSourceOrder(requestedSite);
 
-    if (!requestedSite || requestedSite === 'anikage') {
-      try {
-        streamData = await resolveAnikageStream(id, episode, type, requestedHost, refresh);
-      } catch (error) {
-        attempts.push(`anikage: ${error.message}`);
+    for (const sourceSite of sourceOrder) {
+      if (streamData) {
+        break;
       }
-    }
 
-    if (!streamData && (!requestedSite || requestedSite === 'animex')) {
       try {
-        mediaTitle = await fetchMediaTitle(id, refresh);
-        streamData = await resolveAnimexStream(id, mediaTitle, episode, type, requestedHost, refresh);
-      } catch (error) {
-        attempts.push(`animex: ${error.message}`);
-      }
-    }
+        if (sourceSite === 'anikage') {
+          streamData = await resolveAnikageStream(id, episode, type, requestedHost, refresh);
+          continue;
+        }
 
-    if (!streamData && (!requestedSite || requestedSite === 'anidap')) {
-      try {
-        streamData = await resolveAnidapStream(id, episode, type, requestedHost, refresh);
+        if (sourceSite === 'animex') {
+          mediaTitle = mediaTitle || await fetchMediaTitle(id, refresh);
+          streamData = await resolveAnimexStream(id, mediaTitle, episode, type, requestedHost, refresh);
+          continue;
+        }
+
+        if (sourceSite === 'anidap') {
+          streamData = await resolveAnidapStream(id, episode, type, requestedHost, refresh);
+        }
       } catch (error) {
-        attempts.push(`anidap: ${error.message}`);
+        attempts.push(`${sourceSite}: ${error.message}`);
       }
     }
 
