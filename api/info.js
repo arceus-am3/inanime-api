@@ -99,13 +99,21 @@ module.exports = async function handler(req, res) {
         data.averageScore = (data.averageScore / 10).toFixed(1);
       }
       
-      // Smart Episode Count
-      let currentEpisodeCount = data.episodes;
-      if (data.status === 'RELEASING' && data.nextAiringEpisode) {
-        currentEpisodeCount = data.nextAiringEpisode.episode - 1;
-      }
-
       const {
+        id: mediaId,
+        idMal,
+        title,
+        description,
+        status,
+        season,
+        seasonYear,
+        bannerImage,
+        coverImage,
+        genres,
+        averageScore,
+        trailer,
+        characters,
+        recommendations,
         episodes,
         nextAiringEpisode,
         ...cleanData
@@ -114,12 +122,25 @@ module.exports = async function handler(req, res) {
       res.status(200).json({ 
         success: true, 
         data: {
-          ...cleanData,
-          currentEpisodeCount: currentEpisodeCount,
+          id: mediaId,
+          idMal,
+          title,
+          description,
+          status,
+          season,
+          seasonYear,
+          bannerImage,
+          coverImage,
+          genres,
           streaming: {
             hasSub: providerSummary.hasSub,
             hasDub: providerSummary.hasDub
-          }
+          },
+          averageScore,
+          trailer,
+          characters,
+          recommendations,
+          ...cleanData
         }
       });
     } else {

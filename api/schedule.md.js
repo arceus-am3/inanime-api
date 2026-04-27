@@ -2,7 +2,7 @@ const { fetchAniList } = require('../lib/clients/anilist');
 const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
 export default async function handler(req, res) {
-  setCacheHeaders(res, CACHE_POLICIES.daily);
+  setCacheHeaders(res, CACHE_POLICIES.schedule);
   const now = Math.floor(Date.now() / 1000);
   const nextWeek = now + (7 * 24 * 60 * 60);
 
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     const responseData = await fetchAniList(
       query,
       { start: now, end: nextWeek },
-      { ttlMs: CACHE_POLICIES.daily.sMaxAge * 1000 }
+      { ttlMs: CACHE_POLICIES.schedule.sMaxAge * 1000 }
     );
     res.status(200).json({ success: true, data: responseData.Page.airingSchedules });
   } catch (e) {

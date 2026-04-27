@@ -1,13 +1,22 @@
-const {
-  fetchAnikageEpisodes,
-  normalizeEpisodeList
-} = require('../lib/providers/anikage');
-const {
-  fetchAnimexEpisodes,
-  normalizeAnimexEpisodeList
-} = require('../lib/providers/animex');
 const { fetchAniList } = require('../lib/clients/anilist');
 const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
+
+function formatEpisodeSchedule(timestamp) {
+  if (!timestamp) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(new Date(timestamp * 1000));
+}
 
 module.exports = async function handler(req, res) {
   setCacheHeaders(res, CACHE_POLICIES.episodes);
@@ -22,6 +31,7 @@ module.exports = async function handler(req, res) {
         episodes
         nextAiringEpisode {
           episode
+          airingAt
         }
       }
     }
@@ -35,52 +45,46 @@ module.exports = async function handler(req, res) {
     );
 
     const mediaData = responseData.Media;
-    const [sourceEpisodes, animexEpisodes] = await Promise.all([
-      fetchAnikageEpisodes(id).catch(() => []),
-      fetchAnimexEpisodes(id, mediaData.title).catch(() => [])
-    ]);
-
-    const anikageEpisodes = normalizeEpisodeList(sourceEpisodes);
-    const animexEpisodeNumbers = normalizeAnimexEpisodeList(animexEpisodes);
-    const episodeMap = new Map();
-
-    for (const episodeItem of anikageEpisodes) {
-      episodeMap.set(episodeItem.number, episodeItem.number);
-    }
-
-    for (const episodeItem of animexEpisodeNumbers) {
-      if (!episodeMap.has(episodeItem.number)) {
-        episodeMap.set(episodeItem.number, episodeItem.number);
-      }
-    }
-
-    const episodes = [...episodeMap.values()]
-      .sort((a, b) => a - b)
-      .map((number) => ({ number }));
+    const animeTitle = mediaData.title?.english
+      || mediaData.title?.romaji
+      || mediaData.title?.native
+      || null;
+    const japaneseTitle = mediaData.title?.native
+      || mediaData.title?.romaji
+      || mediaData.title?.english
+      || null;
     
     // Smart Calculation for Current Episode Count
     let currentEpisodeCount = mediaData.episodes || null;
     if (mediaData.status === 'RELEASING' && mediaData.nextAiringEpisode) {
       currentEpisodeCount = mediaData.nextAiringEpisode.episode - 1;
-    } else if (!currentEpisodeCount && episodes.length > 0) {
-      currentEpisodeCount = Math.max(...episodes.map((item) => item.number));
     }
 
-    const nextAiringEpisode = mediaData.nextAiringEpisode
-      ? {
-          episode: mediaData.nextAiringEpisode.episode
-        }
-      : null;
+    const episodes = Number.isFinite(currentEpisodeCount) && currentEpisodeCount > 0
+      ? Array.from({ length: currentEpisodeCount }, (_, index) => ({
+          episode_no: index + 1,
+          id: `${mediaData.id}&ep=${index + 1}`,
+          data_id: mediaData.id,
+          title: animeTitle,
+          japanese_title: japaneseTitle
+        }))
+      : [];
+
+    const nextEpisode = mediaData.nextAiringEpisode?.episode || null;
+    const nextEpisodeSchedule = formatEpisodeSchedule(
+      mediaData.nextAiringEpisode?.airingAt
+    );
 
     res.status(200).json({
       success: true,
-      data: {
-        currentEpisodeCount: currentEpisodeCount,
-        id: mediaData.id,
-        status: mediaData.status,
-        nextAiringEpisode,
-        episodes
-      }
+      results: [
+        {
+          totalEpisodes: currentEpisodeCount,
+          episodes,
+          nextEpisode,
+          nextEpisodeSchedule
+        }
+      ]
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
