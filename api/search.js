@@ -1,7 +1,7 @@
 const { fetchAniList } = require('../lib/clients/anilist');
 const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   setCacheHeaders(res, CACHE_POLICIES.daily);
 
   const { q, genre, year, season, format, page = 1 } = req.query;
@@ -38,4 +38,4 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
-}
+};

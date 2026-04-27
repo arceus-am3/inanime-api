@@ -71,6 +71,7 @@ module.exports = async function handler(req, res) {
           media {
             id
             title { english romaji native }
+            coverImage { large }
           }
         }
       }
@@ -98,6 +99,7 @@ module.exports = async function handler(req, res) {
         data_id: `${item.media?.id}&ep=${item.episode}`,
         title: mediaTitle,
         japanese_title: japaneseTitle,
+        poster: item.media?.coverImage?.large || null,
         releaseDate: schedule.releaseDate,
         time: schedule.time,
         episode_no: item.episode

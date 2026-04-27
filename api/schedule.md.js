@@ -1,7 +1,7 @@
 const { fetchAniList } = require('../lib/clients/anilist');
 const { CACHE_POLICIES, setCacheHeaders } = require('../lib/cache/policies');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   setCacheHeaders(res, CACHE_POLICIES.schedule);
   const now = Math.floor(Date.now() / 1000);
   const nextWeek = now + (7 * 24 * 60 * 60);
@@ -33,4 +33,4 @@ export default async function handler(req, res) {
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
-}
+};
